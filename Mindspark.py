@@ -1,6 +1,126 @@
-python-telegram-bot==13.15
-Flask==2.3.3
-gunicorn==21.2.0                'username': username,
+import sys
+import logging
+import json
+import os
+import random
+from datetime import datetime
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
+from uuid import uuid4
+import time
+
+# Fix for imghdr in Python 3.13+
+if sys.version_info >= (3, 13):
+    import warnings
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    
+    # Create a dummy imghdr module
+    import types
+    imghdr_module = types.ModuleType('imghdr')
+    
+    def dummy_what(file, h=None):
+        return None
+    
+    imghdr_module.what = dummy_what
+    sys.modules['imghdr'] = imghdr_module
+
+# Settings
+BOT_TOKEN = os.environ.get('BOT_TOKEN', "8478077524:AAHlsbLLzUD83AvhmvszVapyxa0HX8fbaDA")
+OWNER_ID = int(os.environ.get('OWNER_ID', "8076328865"))
+FILES_BASE_URL = "https://t.me/Mind_spark_file_downloads_bot?start="
+FILES_DATA_FILE = "files_database.json"
+USER_STATS_FILE = "user_stats.json"
+
+# Force join channels - NEW CHANNELS
+FORCE_JOIN_CHANNELS = [
+    {
+        "id": -1002656523143,
+        "link": "https://t.me/Dream2k26madhyamik",
+        "name": "Join 🔗"
+    },
+    {
+        "id": -1003296338449,
+        "link": "https://t.me/Madhyamik_Achievers",
+        "name": "Join 🔗"
+    },
+    {
+        "id": -1002576057549,
+        "link": "https://t.me/Itzquiztimepro",
+        "name": "Join 🔗"
+    }
+]
+
+# Random welcome images
+WELCOME_IMAGES = [
+    "https://ibb.co/HLQV7pBx",
+    "https://ibb.co/Q32C3cnv",
+    "https://ibb.co/ccBB6ZvR",
+    "https://ibb.co/PGHkm8X4",
+    "https://ibb.co/bVpv72P",
+    "https://ibb.co/99Jx60Fm",
+    "https://ibb.co/gMQSbgbc"
+]
+
+# Source code button link
+SOURCE_CODE_BUTTON_LINK = "https://t.me/+6lG7YsLD-0I4MWNl"
+UPLOAD_BUTTON_LINK = "https://t.me/+VXWr7_UuS4kzNmZl"
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+logger = logging.getLogger(__name__)
+
+# Global variables
+file_database = {}
+user_stats = {}
+bot_start_time = time.time()
+
+def is_owner(user_id):
+    return user_id == OWNER_ID
+
+def load_files_data():
+    global file_database
+    try:
+        if os.path.exists(FILES_DATA_FILE):
+            with open(FILES_DATA_FILE, 'r', encoding='utf-8') as f:
+                file_database = json.load(f)
+            logger.info(f"Loaded {len(file_database)} files from database")
+    except Exception as e:
+        logger.error(f"Error loading file data: {e}")
+        file_database = {}
+
+def save_files_data():
+    try:
+        with open(FILES_DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(file_database, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving file data: {e}")
+
+def load_user_stats():
+    global user_stats
+    try:
+        if os.path.exists(USER_STATS_FILE):
+            with open(USER_STATS_FILE, 'r', encoding='utf-8') as f:
+                user_stats = json.load(f)
+            logger.info(f"Loaded {len(user_stats)} users from stats")
+    except Exception as e:
+        logger.error(f"Error loading user stats: {e}")
+        user_stats = {}
+
+def save_user_stats():
+    try:
+        with open(USER_STATS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(user_stats, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving user stats: {e}")
+
+def update_user_stats(user_id, username, first_name, last_name, file_id, action):
+    try:
+        if str(user_id) not in user_stats:
+            user_stats[str(user_id)] = {
+                'username': username,
                 'first_name': first_name,
                 'last_name': last_name,
                 'files_downloaded': {},
@@ -48,7 +168,6 @@ async def check_user_membership(user_id, context: CallbackContext):
 
 async def show_join_requirement(update: Update, context: CallbackContext, user_id, user):
     """Show join requirement WITHOUT welcome message"""
-    # Create inline keyboard with THREE join buttons
     keyboard = []
     for channel in FORCE_JOIN_CHANNELS:
         keyboard.append([InlineKeyboardButton("Join 🔗", url=channel["link"])])
@@ -78,10 +197,8 @@ async def show_join_requirement(update: Update, context: CallbackContext, user_i
 
 async def show_welcome_after_verification(update: Update, context: CallbackContext, user_id, user):
     """Show welcome message AFTER verification"""
-    # Select random welcome image
     random_image = random.choice(WELCOME_IMAGES)
     
-    # Create reply keyboard
     keyboard = [
         ["📤 Upload File", "📥 Download File"],
         ["📁 My Uploads", "📊 My Stats"],
@@ -93,7 +210,6 @@ async def show_welcome_after_verification(update: Update, context: CallbackConte
     
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    # Check if user is returning
     user_data = user_stats.get(str(user_id), {})
     welcome_note = ""
     
@@ -108,10 +224,555 @@ async def show_welcome_after_verification(update: Update, context: CallbackConte
     else:
         welcome_note = "\n\n🎉 Welcome back! Your verification is complete. You can continue using all features."
     
-    # Send welcome image
     await update.message.reply_photo(
         photo=random_image,
         caption=(
+            "✨ *Welcome to Mind Spark Store Bot!* ✨\n\n"
+            "✅ *Verification Successful!*\n\n"
+            "🎉 *Congratulations! You're now part of our exclusive community!*\n\n"
+            "🚀 *Now you can use all amazing features:*\n"
+            "• Upload and share files instantly\n"
+            "• Get permanent shareable links\n"
+            "• Track your uploads and downloads\n"
+            "• Access our educational resources\n\n"
+            "📚 *Ready to start sharing?* Choose an option from the menu below:"
+            + welcome_note
+        ),
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def start(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    user = update.effective_user
+    
+    if update.message.chat.type != 'private':
+        return
+    
+    update_user_stats(
+        user_id=user_id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        file_id=None,
+        action='start'
+    )
+    
+    if context.args:
+        file_id = context.args[0]
+        
+        not_joined = await check_user_membership(user_id, context)
+        if not_joined:
+            await show_join_requirement(update, context, user_id, user)
+            return
+        
+        await process_file_download(update, context, file_id, user_id, user)
+        return
+    
+    not_joined = await check_user_membership(user_id, context)
+    if not_joined:
+        await show_join_requirement(update, context, user_id, user)
+        return
+    
+    user_data = user_stats.get(str(user_id), {})
+    user_data['has_joined_channels'] = True
+    user_data['last_verified'] = datetime.now().isoformat()
+    save_user_stats()
+    
+    await show_welcome_after_verification(update, context, user_id, user)
+
+async def process_file_download(update: Update, context: CallbackContext, file_id, user_id, user):
+    if file_id in file_database:
+        file_info = file_database[file_id]
+        file_type = file_info['type']
+        caption = file_info.get('caption', '')
+        
+        if 'download_count' not in file_info:
+            file_info['download_count'] = 0
+        file_info['download_count'] += 1
+        save_files_data()
+        
+        update_user_stats(
+            user_id=user_id,
+            username=user.username,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            file_id=file_id,
+            action='download'
+        )
+        
+        keyboard = [[InlineKeyboardButton("Join channel 📑", url=SOURCE_CODE_BUTTON_LINK)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            if file_type == 'video':
+                await update.message.reply_video(
+                    file_info['file_id'], 
+                    caption=f"{caption}" if caption else None,
+                    reply_markup=reply_markup
+                )
+            elif file_type == 'document':
+                await update.message.reply_document(
+                    file_info['file_id'], 
+                    caption=f"{caption}" if caption else None,
+                    reply_markup=reply_markup
+                )
+            elif file_type == 'audio':
+                await update.message.reply_audio(
+                    file_info['file_id'], 
+                    caption=f"{caption}" if caption else None,
+                    reply_markup=reply_markup
+                )
+            elif file_type == 'photo':
+                await update.message.reply_photo(
+                    file_info['file_id'], 
+                    caption=f"{caption}" if caption else None,
+                    reply_markup=reply_markup
+                )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+    else:
+        await update.message.reply_text("❌ File not found!")
+
+async def handle_video(update: Update, context: CallbackContext):
+    if update.message.chat.type != 'private':
+        return
+    await handle_file(update, context, 'video')
+
+async def handle_document(update: Update, context: CallbackContext):
+    if update.message.chat.type != 'private':
+        return
+    await handle_file(update, context, 'document')
+
+async def handle_audio(update: Update, context: CallbackContext):
+    if update.message.chat.type != 'private':
+        return
+    await handle_file(update, context, 'audio')
+
+async def handle_photo(update: Update, context: CallbackContext):
+    if update.message.chat.type != 'private':
+        return
+    await handle_file(update, context, 'photo')
+
+async def handle_file(update: Update, context: CallbackContext, file_type: str):
+    user_id = update.effective_user.id
+    
+    if not is_owner(user_id):
+        not_joined = await check_user_membership(user_id, context)
+        if not_joined:
+            await show_join_requirement(update, context, user_id, update.effective_user)
+            return
+    
+    file_id = None
+    if file_type == 'video':
+        file_id = update.message.video.file_id
+    elif file_type == 'document':
+        file_id = update.message.document.file_id
+    elif file_type == 'audio':
+        file_id = update.message.audio.file_id
+    elif file_type == 'photo':
+        file_id = update.message.photo[-1].file_id
+    
+    file_unique_id = str(uuid4())[:8]
+    caption = update.message.caption or ""
+    
+    file_database[file_unique_id] = {
+        'file_id': file_id,
+        'type': file_type,
+        'caption': caption,
+        'uploader_id': user_id,
+        'uploader_name': update.effective_user.username or update.effective_user.first_name,
+        'created_at': datetime.now().isoformat(),
+        'download_count': 0
+    }
+    
+    save_files_data()
+    
+    update_user_stats(
+        user_id=user_id,
+        username=update.effective_user.username,
+        first_name=update.effective_user.first_name,
+        last_name=update.effective_user.last_name,
+        file_id=file_unique_id,
+        action='upload'
+    )
+    
+    file_link = f"{FILES_BASE_URL}{file_unique_id}"
+    
+    keyboard = [
+        [InlineKeyboardButton("Join channel 🔗", url=UPLOAD_BUTTON_LINK)]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"✅ *Upload Complete!*\n\n"
+        f"🔗 *Shareable Link:*\n`{file_link}`\n\n"
+        f"📝 *Caption:* {caption if caption else 'No caption'}\n\n"
+        f"💡 *Click the link to download the file*\n\n"
+        f"🎯 *Share with friends and help them learn!*",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def button_handler(update: Update, context: CallbackContext):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    user_id = query.from_user.id
+    
+    if data == "verify_membership":
+        not_joined = await check_user_membership(user_id, context)
+        
+        if not_joined:
+            keyboard = []
+            for channel in FORCE_JOIN_CHANNELS:
+                if channel in not_joined:
+                    keyboard.append([InlineKeyboardButton("Join 🔗", url=channel["link"])])
+            
+            keyboard.append([InlineKeyboardButton("🔄 Verify Again", callback_data="verify_membership")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                "❌ *Verification Failed!* ❌\n\n"
+                "You haven't joined all channels yet!\n\n"
+                "📋 *Channels still pending:*\n"
+                f"{len(not_joined)} out of {len(FORCE_JOIN_CHANNELS)} channels\n\n"
+                "👉 *Please click the buttons below to join remaining channels*\n"
+                "👉 *Then click '🔄 Verify Again'*",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        else:
+            user_data = user_stats.get(str(user_id), {})
+            user_data['has_joined_channels'] = True
+            user_data['last_verified'] = datetime.now().isoformat()
+            save_user_stats()
+            
+            await query.message.delete()
+            
+            random_image = random.choice(WELCOME_IMAGES)
+            
+            keyboard = [
+                ["📤 Upload File", "📥 Download File"],
+                ["📁 My Uploads", "📊 My Stats"],
+                ["🆔 My ID", "ℹ️ Help"]
+            ]
+            
+            if is_owner(user_id):
+                keyboard.append(["👑 Owner Panel"])
+            
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            
+            welcome_note = ""
+            if user_data.get('total_downloads', 0) == 0 and user_data.get('total_uploads', 0) == 0:
+                welcome_note = (
+                    "\n\n📝 *First Time User Note:*\n"
+                    "If this is your first time using this bot, you need to click "
+                    "on the link that brought you here. If you came directly to the "
+                    "bot, you can now start using all features by selecting options "
+                    "from the menu below."
+                )
+            else:
+                welcome_note = "\n\n🎉 Welcome back! Your verification is complete. You can continue using all features."
+            
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=random_image,
+                caption=(
+                    "✨ *Welcome to Mind Spark Store Bot!* ✨\n\n"
+                    "✅ *Verification Successful!*\n\n"
+                    "🎉 *Congratulations! You're now part of our exclusive community!*\n\n"
+                    "🚀 *Now you can use all amazing features:*\n"
+                    "• Upload and share files instantly\n"
+                    "• Get permanent shareable links\n"
+                    "• Track your uploads and downloads\n"
+                    "• Access our educational resources\n\n"
+                    "📚 *Ready to start sharing?* Choose an option from the menu below:"
+                    + welcome_note
+                ),
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+
+async def handle_text_message(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    text = update.message.text
+    
+    if update.message.chat.type != 'private':
+        return
+    
+    if not is_owner(user_id):
+        not_joined = await check_user_membership(user_id, context)
+        if not_joined:
+            await show_join_requirement(update, context, user_id, update.effective_user)
+            return
+    
+    if text == "📤 Upload File":
+        await update.message.reply_text(
+            "📤 *Ready to Upload!*\n\n"
+            "✨ *Share educational resources with our community!*\n\n"
+            "Send me any file:\n"
+            "• Videos 📹\n"
+            "• Photos 🖼\n"
+            "• Documents 📄\n"
+            "• Audio files 🎵\n\n"
+            "I'll create a permanent shareable link for you!",
+            parse_mode='Markdown'
+        )
+    
+    elif text == "📥 Download File":
+        await update.message.reply_text(
+            "📥 *Download Files*\n\n"
+            "To access shared educational resources:\n"
+            "1. Click on any shared file link\n"
+            "2. The file will be sent to you immediately\n"
+            "3. All files are stored permanently\n\n"
+            "💡 *Perfect for sharing study materials!*",
+            parse_mode='Markdown'
+        )
+    
+    elif text == "📁 My Uploads":
+        user_data = user_stats.get(str(user_id), {})
+        uploaded_files = user_data.get('files_uploaded', [])
+        
+        if uploaded_files:
+            files_list = []
+            for i, file_id in enumerate(uploaded_files[:5]):
+                if file_id in file_database:
+                    file_link = f"{FILES_BASE_URL}{file_id}"
+                    files_list.append(f"{i+1}. `{file_link}`")
+            
+            message = "📁 *Your Uploaded Files*\n\n" + "\n".join(files_list)
+            if len(uploaded_files) > 5:
+                message += f"\n\n... and {len(uploaded_files)-5} more"
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+        else:
+            await update.message.reply_text(
+                "📭 *No files uploaded yet!*\n\n"
+                "Start sharing educational resources with our community!\n"
+                "Use '📤 Upload File' to get started.",
+                parse_mode='Markdown'
+            )
+    
+    elif text == "📊 My Stats":
+        user_data = user_stats.get(str(user_id), {})
+        total_uploads = len(user_data.get('files_uploaded', []))
+        total_downloads = user_data.get('total_downloads', 0)
+        
+        await update.message.reply_text(
+            f"📊 *Your Statistics*\n\n"
+            f"✨ *Mind Spark Contributor*\n\n"
+            f"📤 Files Uploaded: {total_uploads}\n"
+            f"📥 Files Downloaded: {total_downloads}\n"
+            f"✅ Status: Verified Member\n\n"
+            f"🌟 *Keep sharing knowledge!*",
+            parse_mode='Markdown'
+        )
+    
+    elif text == "🆔 My ID":
+        await update.message.reply_text(
+            f"🆔 *Your User ID:*\n`{user_id}`\n\n"
+            "✨ *This unique ID identifies you in our community!*",
+            parse_mode='Markdown'
+        )
+    
+    elif text == "ℹ️ Help":
+        await help_command(update, context)
+    
+    elif text == "👑 Owner Panel" and is_owner(user_id):
+        await owner_command(update, context)
+    
+    else:
+        if text.startswith('/'):
+            await update.message.reply_text(
+                "❓ *Unknown Command*\n\n"
+                "Use the buttons below or type /help for assistance.",
+                parse_mode='Markdown'
+            )
+
+async def help_command(update: Update, context: CallbackContext):
+    if update.message.chat.type != 'private':
+        return
+    
+    user_id = update.effective_user.id
+    
+    if not is_owner(user_id):
+        not_joined = await check_user_membership(user_id, context)
+        if not_joined:
+            await show_join_requirement(update, context, user_id, update.effective_user)
+            return
+    
+    keyboard = [
+        ["📤 Upload File", "📥 Download File"],
+        ["📁 My Uploads", "📊 My Stats"],
+        ["🆔 My ID", "ℹ️ Help"]
+    ]
+    
+    if is_owner(user_id):
+        keyboard.append(["👑 Owner Panel"])
+    
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    
+    await update.message.reply_text(
+        "🆘 *Mind Spark Store Bot - Help*\n\n"
+        "✨ *Welcome to our educational community!*\n\n"
+        "📚 *How to use this bot:*\n"
+        "1. Join all required educational channels\n"
+        "2. Verify your membership\n"
+        "3. Upload study materials to get shareable links\n"
+        "4. Share links with classmates and friends\n"
+        "5. Click links to download educational resources\n\n"
+        "📋 *Commands:*\n"
+        "/start - Start the bot and join channels\n"
+        "/help - Show this help message\n"
+        "/owner - Owner panel (owner only)\n\n"
+        "📱 *Reply Keyboard Buttons:*\n"
+        "• 📤 Upload File - Upload new files\n"
+        "• 📥 Download File - Access shared files\n"
+        "• 📁 My Uploads - View your uploaded files\n"
+        "• 📊 My Stats - View your statistics\n"
+        "• 🆔 My ID - Get your user ID\n"
+        "• ℹ️ Help - Show help message\n"
+        "• 👑 Owner Panel - Admin controls (owner only)\n\n"
+        "❓ *Support:* @Team_2k26_Support_Bot",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def owner_command(update: Update, context: CallbackContext):
+    user_id = update.effective_user.id
+    
+    if update.message.chat.type != 'private':
+        return
+    
+    if not is_owner(user_id):
+        await update.message.reply_text("❌ Owner access required.")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 Bot Statistics", callback_data="bot_stats")],
+        [InlineKeyboardButton("👥 User Management", callback_data="user_management")],
+        [InlineKeyboardButton("📁 File Management", callback_data="file_management")],
+        [InlineKeyboardButton("📢 Broadcast Message", callback_data="broadcast_message")],
+        [InlineKeyboardButton("📤 Export Data", callback_data="export_data")],
+        [InlineKeyboardButton("🔄 Reset Bot", callback_data="reset_bot")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "👑 *Owner Panel* 👑\n\n"
+        "✨ *Mind Spark Store Bot Admin*\n\n"
+        "Select an option:",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def handle_sticker(update: Update, context: CallbackContext):
+    if update.message.chat.type != 'private':
+        return
+    
+    user_id = update.effective_user.id
+    
+    if not is_owner(user_id):
+        not_joined = await check_user_membership(user_id, context)
+        if not_joined:
+            await show_join_requirement(update, context, user_id, update.effective_user)
+            return
+    
+    await update.message.reply_text(
+        "😊 *Stickers are fun!*\n\n"
+        "But I can only store and share educational files.\n"
+        "Please send me videos, photos, documents, or audio files instead.",
+        parse_mode='Markdown'
+    )
+
+async def handle_voice(update: Update, context: CallbackContext):
+    if update.message.chat.type != 'private':
+        return
+    
+    user_id = update.effective_user.id
+    
+    if not is_owner(user_id):
+        not_joined = await check_user_membership(user_id, context)
+        if not_joined:
+            await show_join_requirement(update, context, user_id, update.effective_user)
+            return
+    
+    await update.message.reply_text(
+        "🎤 *Voice message received!*\n\n"
+        "I currently don't store voice messages.\n"
+        "Please send me videos, photos, documents, or audio files instead.",
+        parse_mode='Markdown'
+    )
+
+async def handle_animation(update: Update, context: CallbackContext):
+    if update.message.chat.type != 'private':
+        return
+    
+    user_id = update.effective_user.id
+    
+    if not is_owner(user_id):
+        not_joined = await check_user_membership(user_id, context)
+        if not_joined:
+            await show_join_requirement(update, context, user_id, update.effective_user)
+            return
+    
+    await update.message.reply_text(
+        "🎬 *Animation received!*\n\n"
+        "I currently don't store animations/GIFs.\n"
+        "Please send me videos, photos, documents, or audio files instead.",
+        parse_mode='Markdown'
+    )
+
+async def error_handler(update: Update, context: CallbackContext):
+    logger.error(f"Error: {context.error}")
+
+def main():
+    # Load data first
+    load_files_data()
+    load_user_stats()
+    
+    print("✨ Mind Spark Store Bot Starting...")
+    
+    # Create application
+    application = Application.builder()\
+        .token(BOT_TOKEN)\
+        .read_timeout(30)\
+        .write_timeout(30)\
+        .build()
+    
+    # Add error handler
+    application.add_error_handler(error_handler)
+    
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("owner", owner_command))
+    application.add_handler(CommandHandler("help", help_command))
+    
+    application.add_handler(MessageHandler(filters.VIDEO, handle_video))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    application.add_handler(MessageHandler(filters.AUDIO, handle_audio))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(MessageHandler(filters.Sticker.ALL, handle_sticker))
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    application.add_handler(MessageHandler(filters.ANIMATION, handle_animation))
+    
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
+    
+    application.add_handler(CallbackQueryHandler(button_handler))
+    
+    print(f"✅ Loaded {len(file_database)} files")
+    print(f"✅ Loaded {len(user_stats)} users")
+    print(f"✅ Bot will ONLY respond in private chat")
+    print("✅ Starting bot...")
+    
+    # Start polling
+    application.run_polling()
+
+if __name__ == '__main__':
+    main()         caption=(
             "✨ *Welcome to Mind Spark Store Bot!* ✨\n\n"
             "✅ *Verification Successful!*\n\n"
             "🎉 *Congratulations! You're now part of our exclusive community!*\n\n"
